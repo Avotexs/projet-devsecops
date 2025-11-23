@@ -1,0 +1,21 @@
+rules:
+  - id: "UNPINNED_ACTION"
+    severity: "MEDIUM"
+    description: "GitHub Action is not pinned to a specific SHA."
+    match_key: "action_version"
+    match_pattern: "^v[0-9]+$" # Matches v1, v2 etc. (tags) instead of SHA
+    remediation: "Pin the action to a full SHA commit hash."
+
+  - id: "EXPOSED_SECRET"
+    severity: "HIGH"
+    description: "Potential secret exposed in logs."
+    match_key: "log_content"
+    match_pattern: "(?i)(password|secret|token|key)\\s*[:=]\\s*\\S+"
+    remediation: "Revoke the secret and use a secrets manager."
+
+  - id: "BROAD_PERMISSIONS"
+    severity: "HIGH"
+    description: "Permissions are too broad (write-all)."
+    match_key: "permissions"
+    match_value: "write-all"
+    remediation: "Scope permissions to least privilege."

@@ -17,7 +17,28 @@ services:
     depends_on:
       - mongodb
 
+  vuln-detector:
+    build: ./services/vuln-detector
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/vulndetector
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: vulndetector
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
 volumes:
   mongodb_data:
+  postgres_data:
 
 
