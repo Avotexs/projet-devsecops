@@ -1,0 +1,94 @@
+# Explication Machine Learning (ML) - Projet DevSecOps
+
+Ce document explique le fonctionnement du module **AnomalyDetector** de manière simple et détaillée.
+
+## 1. Quel est le rôle de l'IA dans ce projet ?
+
+Imaginez que vous avez un gardien de sécurité très observateur qui surveille les travaux (jobs) qui s'exécutent sur votre système. Ce gardien apprend ce qui est "normal" et alerte immédiatement quand quelque chose de "bizarre" se produit.
+
+Dans ce projet, le service **AnomalyDetector** est ce gardien. Son but est de repérer des comportements anormaux comme :
+- Un job qui prend beaucoup plus de temps que d'habitude (ou beaucoup moins).
+- Une pause inhabituellement longue entre deux exécutions.
+- Une consommation de CPU ou de mémoire suspecte.
+
+---
+
+## 2. Comment ça marche ? (Étape par Étape)
+
+Voici le processus complet, simplifié :
+
+### Étape 1 : Réception des données (Les Yeux)
+Le système reçoit des informations sur l'exécution d'un job. Ex: "Le Job A a fini à 10h00, a duré 2 secondes, et a utilisé 40% de CPU."
+
+### Étape 2 : Extraction de caractéristiques (Le Cerveau analytique)
+Avant de donner ces données à l'IA, on les transforme en "indices" (features) compréhensibles pour elle.
+- **Durée (ms)** : Combien de temps ça a pris ?
+- **Temps depuis la dernière fois** : Est-ce qu'on a attendu trop longtemps ?
+- **Changement de durée** : Est-ce que c'est beaucoup plus lent que la fois d'avant ?
+- **Ressources** : Utilisation CPU/Mémoire.
+
+### Étape 3 : L'Algorithme (Le Jugement)
+Ces indices sont envoyés à un modèle mathématique (l'IA) qui va les comparer à ce qu'il connait déjà.
+
+### Étape 4 : Le Verdict
+L'IA donne un score d'anomalie.
+- Si le score est faible : "Tout est normal."
+- Si le score est élevé : "Attention, anomalie détectée !"
+
+---
+
+## 3. La Base de Données (La Mémoire)
+
+**Base de données utilisée : TimescaleDB (basée sur PostgreSQL)**
+
+**Pourquoi celle-là ?**
+On utilise **TimescaleDB** car c'est une base de données optimisée pour les **séries temporelles** (Time-Series).
+- **Le problème :** Nos données sont une suite d'événements dans le temps (Job à 10h01, Job à 10h02, etc.). Une base de données classique peut ralentir quand il y a des millions d'événements.
+- **La solution :** TimescaleDB est faite pour gérer, stocker et analyser rapidement des données qui évoluent avec le temps. C'est comme un classeur chronologique ultra-rapide.
+
+---
+
+## 4. Les Algorithmes Utilisés (Les Outils du Gardien)
+
+Ce projet utilise deux "intelligence" différentes. On peut choisir celle qu'on veut.
+
+### A. Isolation Forest (Le détecteur d'intrus) - *Par défaut*
+
+**C'est quoi ?**
+Imaginez une forêt d'arbres décisionnels. Pour isoler un point "normal" (au milieu du groupe), il faut poser beaucoup de questions (couper beaucoup de branches). Pour isoler un point "anormal" (qui est loin des autres), il suffit de quelques coupes.
+
+**Pourquoi on l'utilise ?**
+1.  **Rapidité :** Il est très rapide et efficace.
+2.  **Pas besoin d'étiquettes :** Il n'a pas besoin qu'on lui dise à l'avance "ceci est une anomalie". Il apprend tout seul ce qui est rare.
+3.  **Efficace pour les "outliers" :** C'est le meilleur pour repérer un mouton noir dans un troupeau blanc.
+
+**Exemple simple :** Si tous les jobs durent 5 secondes et qu'un job dure 500 secondes, Isolation Forest va l'isoler très vite et dire "C'est une anomalie !".
+
+### B. Autoencoder (Le copieur perfectionniste) - *Optionnel*
+
+**C'est quoi ?**
+C'est un réseau de neurones artificiels (Deep Learning). Il fonctionne comme un artiste qui essaie de recopier une image de mémoire.
+1.  **Compression (Encoder) :** Il prend les données et essaie de les résumer au maximum.
+2.  **Reconstruction (Decoder) :** Il essaie de reconstruire les données originales à partir du résumé.
+
+**Comment détecte-t-il les erreurs ?**
+Il s'entraîne sur des données **normales**. Il devient très fort pour recopier des données normales.
+Si on lui donne une donnée **anormale**, il n'arrivera pas à la recopier correctement. L'erreur de reconstruction sera grande.
+- **Grande erreur = Anomalie.**
+
+**Pourquoi on l'utilise ?**
+- Il est capable de comprendre des relations beaucoup plus complexes et subtiles que l'Isolation Forest.
+- Utile quand les motifs sont compliqués (ex: relation non-linéaire entre CPU et durée).
+
+---
+
+## Résumé pour débutant
+
+| Composant | Analogie | Rôle technique |
+|-----------|----------|----------------|
+| **Features** | Les indices | Données transformées (durée, délai...) |
+| **Isolation Forest** | Le trieur rapide | Algorithme statistique pour repérer les cas rares |
+| **Autoencoder** | Le faussaire | Réseau de neurones qui repère ce qu'il n'arrive pas à copier |
+| **TimescaleDB** | L'historien | Base de données pour stocker l'historique temporel |
+
+L'IA ne "réfléchit" pas comme un humain, elle compare juste mathématiquement ce qui se passe maintenant avec ce qui s'est passé avant pour voir si c'est cohérent.

@@ -1,0 +1,20 @@
+name: Vulnerable Pipeline
+permissions: write-all
+
+on: [push]
+
+jobs:
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      # Vulnerability 1: Unpinned Action (using tag instead of SHA)
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      
+      # Vulnerability 2: Hardcoded Secret
+      - name: Deploy to Cloud
+        run: |
+          echo "Deploying to production..."
+          # The scanner detects this pattern
+          export AWS_SECRET_ACCESS_KEY=AKIAIMNOVALIDKEY1234
+          ./deploy.sh

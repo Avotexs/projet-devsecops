@@ -5,13 +5,17 @@ from .database import engine, Base
 # Create DB tables
 Base.metadata.create_all(bind=engine)
 
-from fastapi.middleware.cors import CORSMiddleware
+app = FastAPI(
+    title="AnomalyDetector Service",
+    description="ML-powered anomaly detection for behavioral analysis",
+    version="1.0.0"
+)
 
-app = FastAPI(title="VulnDetector Service")
+from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all for development, or ["http://localhost:3000"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -19,6 +23,8 @@ app.add_middleware(
 
 app.include_router(router)
 
+
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    """Health check endpoint."""
+    return {"status": "ok", "service": "anomaly-detector"}

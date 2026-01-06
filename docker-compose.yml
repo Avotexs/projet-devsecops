@@ -46,8 +46,63 @@ services:
     ports:
       - "5432:5432"
 
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    environment:
+      POSTGRES_USER: anomaly_user
+      POSTGRES_PASSWORD: anomaly_pass
+      POSTGRES_DB: anomalydb
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    restart: always
+
+  anomaly-detector:
+    build: ./services/anomaly-detector
+    ports:
+      - "8003:8000"
+    environment:
+      - DATABASE_URL=postgresql://anomaly_user:anomaly_pass@timescaledb:5432/anomalydb
+    depends_on:
+      - timescaledb
+
+  report-generator:
+    build: ./services/report-generator
+    ports:
+      - "8004:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/vulndetector
+    depends_on:
+      - postgres
+
+  dashboard:
+    build: ./services/dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      - vuln-detector
+      - fix-suggester
+      - anomaly-detector
+      - report-generator
+
+  jenkins:
+    image: jenkins/jenkins:lts
+    privileged: true
+    user: root
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+
 volumes:
   mongodb_data:
   postgres_data:
+  timescaledb_data:
+  jenkins_home:
 
 

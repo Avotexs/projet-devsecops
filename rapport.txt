@@ -1,0 +1,785 @@
+================================================================================
+                    RAPPORT TECHNIQUE - PROJET DEVSECOPS
+               SafeOps LogMiner - Plateforme de Sécurité CI/CD
+================================================================================
+
+TABLE DES MATIÈRES
+==================
+1. Vue d'ensemble du projet
+2. Architecture globale
+3. Microservices détaillés
+   3.1 Log-Collector
+   3.2 Log-Parser
+   3.3 Vuln-Detector
+   3.4 Fix-Suggester
+   3.5 Anomaly-Detector (ML)
+   3.6 Report-Generator
+   3.7 Dashboard
+4. Partie Machine Learning (ML)
+5. Comment démarrer le projet
+6. API et Endpoints
+
+================================================================================
+1. VUE D'ENSEMBLE DU PROJET
+================================================================================
+
+SafeOps LogMiner est une plateforme DevSecOps complète pour l'analyse de 
+sécurité des pipelines CI/CD. Elle collecte, analyse et détecte les 
+vulnérabilités dans les logs des workflows GitHub Actions.
+
+Objectifs principaux:
+- Collecter les logs de pipelines CI/CD
+- Parser et structurer les données de logs
+- Détecter les vulnérabilités de sécurité
+- Suggérer des corrections automatiques
+- Détecter les anomalies comportementales avec ML
+- Générer des rapports de sécurité
+- Visualiser les données via un tableau de bord
+
+================================================================================
+2. ARCHITECTURE GLOBALE
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              ARCHITECTURE                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [Dashboard]  ──────┐                                                       │
+│    (React)         │                                                        │
+│    Port: 3000      │                                                        │
+│                    ▼                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐      │
+│  │                    API GATEWAY (Services)                         │      │
+│  ├──────────────────────────────────────────────────────────────────┤      │
+│  │                                                                   │      │
+│  │  [Log-Collector] ──► [Log-Parser] ──► [Vuln-Detector]            │      │
+│  │   (Node.js)          (Python)         (Python)                   │      │
+│  │   Port: 5000         Port: 8000       Port: 8001                 │      │
+│  │        │                 │                │                       │      │
+│  │        ▼                 ▼                ▼                       │      │
+│  │   (MongoDB)         (MongoDB)       (PostgreSQL)                 │      │
+│  │                                                                   │      │
+│  │  [Fix-Suggester] ◄── [Vuln-Detector]                             │      │
+│  │   (Python)                                                        │      │
+│  │   Port: 8002                                                      │      │
+│  │        │                                                          │      │
+│  │        ▼                                                          │      │
+│  │   (PostgreSQL)                                                    │      │
+│  │                                                                   │      │
+│  │  [Anomaly-Detector]  ◄── [ML Engine]                             │      │
+│  │   (Python + TensorFlow + scikit-learn)                           │      │
+│  │   Port: 8003                                                      │      │
+│  │        │                                                          │      │
+│  │        ▼                                                          │      │
+│  │   (TimescaleDB)                                                   │      │
+│  │                                                                   │      │
+│  │  [Report-Generator]                                               │      │
+│  │   (Node.js)                                                       │      │
+│  │   Port: 8004                                                      │      │
+│  └──────────────────────────────────────────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Bases de données:
+- MongoDB (Port 27017): Stockage des logs bruts et parsés
+- PostgreSQL (Port 5432): Vulnérabilités et suggestions de corrections
+- TimescaleDB (Port 5433): Données temporelles pour l'analyse ML
+
+================================================================================
+3. MICROSERVICES DÉTAILLÉS
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 LOG-COLLECTOR (Node.js)
+--------------------------------------------------------------------------------
+
+RÔLE:
+    Collecte les logs provenant des pipelines CI/CD (GitHub Actions, etc.)
+
+TECHNOLOGIES:
+    - Node.js
+    - Express.js (framework web)
+    - Mongoose (ODM MongoDB)
+    - Morgan (logging HTTP)
+    - CORS (Cross-Origin Resource Sharing)
+    - dotenv (gestion des variables d'environnement)
+
+PORT: 5000 (interne)
+
+FICHIERS PRINCIPAUX:
+    services/log-collector/
+    ├── src/
+    │   └── server.js    # Point d'entrée du serveur
+    ├── package.json      # Dépendances
+    └── .env              # Variables d'environnement
+
+UTILISATION:
+    # Démarrer le service
+    cd services/log-collector
+    npm install
+    npm start
+    
+    # Envoyer des logs
+    POST http://localhost:5000/logs
+    Content-Type: application/json
+    {
+        "source": "github-actions",
+        "workflow": "build",
+        "content": "..."
+    }
+
+--------------------------------------------------------------------------------
+3.2 LOG-PARSER (Python/FastAPI)
+--------------------------------------------------------------------------------
+
+RÔLE:
+    Parse et structure les logs bruts collectés pour les transformer en 
+    données exploitables.
+
+TECHNOLOGIES:
+    - Python 3.11
+    - FastAPI (framework web async)
+    - Uvicorn (serveur ASGI)
+    - PyMongo (driver MongoDB)
+    - PyYAML (parsing YAML)
+    - jsonpath-ng (navigation JSON)
+    - python-dotenv (variables d'environnement)
+
+PORT: 8000
+
+FICHIERS PRINCIPAUX:
+    services/log-parser/
+    ├── src/
+    │   ├── main.py       # Point d'entrée FastAPI
+    │   ├── routes.py     # Définition des endpoints
+    │   └── parser.py     # Logique de parsing
+    ├── requirements.txt   # Dépendances Python
+    └── Dockerfile         # Configuration Docker
+
+UTILISATION:
+    # Démarrer le service
+    cd services/log-parser
+    pip install -r requirements.txt
+    uvicorn src.main:app --host 0.0.0.0 --port 8000
+    
+    # Parser un log
+    POST http://localhost:8000/logs/parse
+    Content-Type: application/json
+    {
+        "raw_log": "2024-01-15T10:30:00Z [INFO] Build started..."
+    }
+
+ENDPOINTS:
+    - GET  /           : Vérification que le service fonctionne
+    - POST /logs/parse : Parser un log brut
+    - GET  /logs       : Récupérer les logs parsés
+
+--------------------------------------------------------------------------------
+3.3 VULN-DETECTOR (Python/FastAPI)
+--------------------------------------------------------------------------------
+
+RÔLE:
+    Détecte les vulnérabilités de sécurité dans les workflows GitHub Actions.
+
+TECHNOLOGIES:
+    - Python 3.11
+    - FastAPI (framework web)
+    - Uvicorn (serveur ASGI)
+    - SQLAlchemy (ORM)
+    - psycopg2-binary (driver PostgreSQL)
+    - Pydantic (validation des données)
+    - PyYAML (parsing YAML)
+
+PORT: 8001
+
+FICHIERS PRINCIPAUX:
+    services/vuln-detector/
+    ├── src/
+    │   ├── main.py        # Point d'entrée FastAPI
+    │   ├── routes.py      # Endpoints de détection
+    │   ├── models.py      # Modèles SQLAlchemy/Pydantic
+    │   ├── database.py    # Configuration PostgreSQL
+    │   └── rules/         # Règles de détection
+    ├── requirements.txt
+    └── Dockerfile
+
+TYPES DE VULNÉRABILITÉS DÉTECTÉES:
+    - Injection de commandes
+    - Secrets exposés
+    - Permissions excessives
+    - Workflows non sécurisés
+    - Dépendances vulnérables
+
+UTILISATION:
+    # Démarrer le service
+    cd services/vuln-detector
+    pip install -r requirements.txt
+    uvicorn src.main:app --host 0.0.0.0 --port 8000
+    
+    # Analyser un workflow
+    POST http://localhost:8001/analyze
+    Content-Type: application/json
+    {
+        "workflow_yaml": "name: Build\non: push\njobs:..."
+    }
+
+ENDPOINTS:
+    - GET  /health    : Vérification de santé
+    - POST /analyze   : Analyser un workflow
+    - GET  /vulns     : Lister les vulnérabilités détectées
+
+--------------------------------------------------------------------------------
+3.4 FIX-SUGGESTER (Python/FastAPI)
+--------------------------------------------------------------------------------
+
+RÔLE:
+    Génère des suggestions de corrections (patches YAML) pour les 
+    vulnérabilités détectées dans les workflows GitHub Actions.
+
+TECHNOLOGIES:
+    - Python 3.11
+    - FastAPI (framework web)
+    - Uvicorn (serveur ASGI)
+    - SQLAlchemy (ORM)
+    - psycopg2-binary (driver PostgreSQL)
+    - Pydantic (validation)
+    - Jinja2 (templates pour genérer les patches)
+    - diff-match-patch (génération de diffs)
+
+PORT: 8002
+
+FICHIERS PRINCIPAUX:
+    services/fix-suggester/
+    ├── src/
+    │   ├── main.py        # Point d'entrée
+    │   ├── routes.py      # Endpoints
+    │   ├── models.py      # Modèles de données
+    │   ├── database.py    # PostgreSQL
+    │   ├── suggester.py   # Logique de suggestion
+    │   └── templates/     # Templates de corrections
+    ├── requirements.txt
+    └── Dockerfile
+
+UTILISATION:
+    # Démarrer le service
+    cd services/fix-suggester
+    pip install -r requirements.txt
+    uvicorn src.main:app --host 0.0.0.0 --port 8000
+    
+    # Obtenir des suggestions de correction
+    POST http://localhost:8002/suggest
+    Content-Type: application/json
+    {
+        "vulnerability_id": 123,
+        "workflow_yaml": "..."
+    }
+
+ENDPOINTS:
+    - GET  /health        : Vérification de santé
+    - POST /suggest       : Générer une suggestion de fix
+    - GET  /suggestions   : Lister les suggestions
+
+--------------------------------------------------------------------------------
+3.5 ANOMALY-DETECTOR (Python/FastAPI + ML)
+--------------------------------------------------------------------------------
+
+*** SECTION MACHINE LEARNING DÉTAILLÉE CI-DESSOUS ***
+
+RÔLE:
+    Détecte les anomalies comportementales dans les exécutions de jobs 
+    CI/CD en utilisant des algorithmes de Machine Learning.
+
+TECHNOLOGIES:
+    - Python 3.11
+    - FastAPI (framework web)
+    - Uvicorn (serveur ASGI)
+    - SQLAlchemy (ORM)
+    - psycopg2-binary (driver PostgreSQL/TimescaleDB)
+    - scikit-learn 1.3.2 (Isolation Forest)
+    - TensorFlow 2.15.0 (Autoencoder)
+    - NumPy 1.26.2 (calcul numérique)
+    - Pandas 2.1.3 (manipulation de données)
+    - Pydantic (validation)
+
+PORT: 8003
+
+FICHIERS PRINCIPAUX:
+    services/anomaly-detector/
+    ├── src/
+    │   ├── main.py           # Point d'entrée FastAPI
+    │   ├── routes.py         # Endpoints API
+    │   ├── models.py         # Modèles SQLAlchemy/Pydantic
+    │   ├── database.py       # PostgreSQL/TimescaleDB
+    │   └── anomaly_engine.py # MOTEUR ML (IMPORTANT)
+    ├── requirements.txt
+    └── Dockerfile
+
+UTILISATION:
+    # Démarrer le service
+    cd services/anomaly-detector
+    pip install -r requirements.txt
+    uvicorn src.main:app --host 0.0.0.0 --port 8000
+    
+    # Détecter des anomalies
+    POST http://localhost:8003/anomaly
+    Content-Type: application/json
+    {
+        "job_id": "build-workflow",
+        "executions": [
+            {
+                "timestamp": "2024-01-15T10:00:00Z",
+                "duration_ms": 45000,
+                "status": "success"
+            },
+            ...
+        ],
+        "use_autoencoder": false,
+        "learn_from_history": true
+    }
+
+ENDPOINTS:
+    - POST /anomaly            : Détecter des anomalies
+    - GET  /history/{job_id}   : Historique des exécutions d'un job
+    - GET  /reports/{job_id}   : Rapports d'anomalies d'un job
+
+--------------------------------------------------------------------------------
+3.6 REPORT-GENERATOR (Node.js)
+--------------------------------------------------------------------------------
+
+RÔLE:
+    Génère des rapports de sécurité en différents formats (PDF, HTML, SARIF).
+
+TECHNOLOGIES:
+    - Node.js
+    - Express.js (framework web)
+    - PDFKit (génération de PDF)
+    - Handlebars (templates HTML)
+    - pg (driver PostgreSQL)
+    - uuid (génération d'identifiants)
+
+PORT: 8004
+
+FICHIERS PRINCIPAUX:
+    services/report-generator/
+    ├── src/
+    │   ├── index.js       # Point d'entrée
+    │   ├── routes.js      # Endpoints
+    │   └── generators/    # Générateurs de rapports
+    ├── package.json
+    └── Dockerfile
+
+UTILISATION:
+    # Démarrer le service
+    cd services/report-generator
+    npm install
+    npm start
+    
+    # Générer un rapport PDF
+    GET http://localhost:8004/report/pdf?scan_id=123
+    
+    # Générer un rapport HTML
+    GET http://localhost:8004/report/html?scan_id=123
+    
+    # Générer un rapport SARIF (format standard)
+    GET http://localhost:8004/report/sarif?scan_id=123
+
+FORMATS DE RAPPORT:
+    - PDF: Rapport visuel complet avec graphiques
+    - HTML: Rapport web interactif
+    - SARIF: Format standard pour l'intégration CI/CD
+
+--------------------------------------------------------------------------------
+3.7 DASHBOARD (React)
+--------------------------------------------------------------------------------
+
+RÔLE:
+    Interface utilisateur web pour visualiser les données de sécurité, 
+    les anomalies détectées et les rapports.
+
+TECHNOLOGIES:
+    - React 18.2
+    - React Scripts 5.0.1
+    - Chart.js 4.4.1 (graphiques)
+    - react-chartjs-2 5.2.0 (wrapper React pour Chart.js)
+    - Axios 1.6.2 (requêtes HTTP)
+    - TailwindCSS 3.3.6 (styling)
+    - PostCSS (traitement CSS)
+    - Autoprefixer (compatibilité navigateurs)
+
+PORT: 3000
+
+FICHIERS PRINCIPAUX:
+    services/dashboard/
+    ├── src/
+    │   ├── App.js         # Composant principal
+    │   ├── index.js       # Point d'entrée React
+    │   ├── index.css      # Styles globaux
+    │   └── components/    # Composants React
+    ├── public/
+    │   └── index.html     # Template HTML
+    ├── package.json
+    ├── tailwind.config.js # Configuration Tailwind
+    ├── postcss.config.js  # Configuration PostCSS
+    ├── nginx.conf         # Configuration Nginx (production)
+    └── Dockerfile
+
+UTILISATION:
+    # Développement
+    cd services/dashboard
+    npm install
+    npm start
+    # Ouvrir http://localhost:3000
+    
+    # Production (avec Docker)
+    docker build -t dashboard .
+    docker run -p 3000:80 dashboard
+
+FONCTIONNALITÉS:
+    - Tableau de bord des vulnérabilités
+    - Graphiques de tendances
+    - Liste des anomalies détectées
+    - Visualisation des rapports
+    - Filtres et recherche
+
+================================================================================
+4. PARTIE MACHINE LEARNING (ML) - DÉTAIL COMPLET
+================================================================================
+
+Le service ANOMALY-DETECTOR utilise des techniques avancées de Machine Learning
+pour détecter les comportements anormaux dans les exécutions de pipelines CI/CD.
+
+--------------------------------------------------------------------------------
+4.1 CLASSE PRINCIPALE: AnomalyEngine
+--------------------------------------------------------------------------------
+
+Fichier: services/anomaly-detector/src/anomaly_engine.py
+
+La classe AnomalyEngine est le cœur du système de détection d'anomalies.
+Elle implémente deux algorithmes de ML:
+
+1) ISOLATION FOREST (scikit-learn)
+2) AUTOENCODER (TensorFlow/Keras)
+
+--------------------------------------------------------------------------------
+4.2 ALGORITHME 1: ISOLATION FOREST
+--------------------------------------------------------------------------------
+
+PRINCIPE:
+    L'Isolation Forest est un algorithme d'apprentissage non supervisé qui
+    isole les anomalies plutôt que de modéliser les données normales.
+    
+    Il fonctionne en créant des arbres de décision aléatoires. Les anomalies
+    sont isolées plus rapidement car elles ont des valeurs inhabituelles.
+
+PARAMÈTRES:
+    - contamination = 0.1 (10% d'anomalies attendues)
+    - n_estimators = 100 (nombre d'arbres)
+    - random_state = 42 (reproductibilité)
+
+IMPLÉMENTATION:
+    ```python
+    self.isolation_forest = IsolationForest(
+        contamination=contamination,
+        random_state=42,
+        n_estimators=100
+    )
+    ```
+
+UTILISATION:
+    La méthode detect_with_isolation_forest() effectue:
+    1. Extraction des features des exécutions
+    2. Normalisation avec StandardScaler
+    3. Entraînement du modèle
+    4. Prédiction (-1 = anomalie, 1 = normal)
+    5. Calcul du score d'anomalie
+
+--------------------------------------------------------------------------------
+4.3 ALGORITHME 2: AUTOENCODER (Deep Learning)
+--------------------------------------------------------------------------------
+
+PRINCIPE:
+    Un autoencoder est un réseau de neurones qui apprend à compresser puis
+    reconstruire les données. Les anomalies ont une erreur de reconstruction
+    élevée car le modèle n'a pas appris à les représenter.
+
+ARCHITECTURE DU RÉSEAU:
+    ```
+    ENCODER (compression):
+        Input (input_dim) → Dense(32, ReLU) → Dense(16, ReLU) → Dense(8, ReLU)
+    
+    DECODER (reconstruction):
+        Dense(8) → Dense(16, ReLU) → Dense(32, ReLU) → Output(input_dim)
+    ```
+
+PARAMÈTRES D'ENTRAÎNEMENT:
+    - optimizer: Adam
+    - loss: MSE (Mean Squared Error)
+    - epochs: 50
+    - batch_size: min(32, taille_données)
+
+DÉTECTION D'ANOMALIES:
+    - Calcul de l'erreur de reconstruction (MSE)
+    - Seuil au 95ème percentile
+    - Si erreur > seuil → ANOMALIE
+
+IMPLÉMENTATION:
+    ```python
+    def _build_autoencoder(self, input_dim: int):
+        # Encoder
+        encoder_input = keras.Input(shape=(input_dim,))
+        x = layers.Dense(32, activation='relu')(encoder_input)
+        x = layers.Dense(16, activation='relu')(x)
+        encoded = layers.Dense(8, activation='relu')(x)
+        
+        # Decoder
+        x = layers.Dense(16, activation='relu')(encoded)
+        x = layers.Dense(32, activation='relu')(x)
+        decoded = layers.Dense(input_dim, activation='linear')(x)
+        
+        autoencoder = keras.Model(encoder_input, decoded)
+        autoencoder.compile(optimizer='adam', loss='mse')
+        return autoencoder
+    ```
+
+--------------------------------------------------------------------------------
+4.4 EXTRACTION DES FEATURES
+--------------------------------------------------------------------------------
+
+Le système extrait 5 caractéristiques numériques pour chaque exécution:
+
+1. duration_ms: Durée d'exécution en millisecondes
+2. time_since_last: Temps écoulé depuis la dernière exécution (secondes)
+3. duration_diff: Différence de durée avec l'exécution précédente
+4. cpu_usage: Utilisation CPU (si disponible)
+5. memory_usage: Utilisation mémoire (si disponible)
+
+IMPLÉMENTATION:
+    ```python
+    def _extract_features(self, executions):
+        features = []
+        for exec_data in executions:
+            features.append([
+                duration,           # Feature 1
+                time_since_last,    # Feature 2
+                duration_diff,      # Feature 3
+                cpu_usage,          # Feature 4
+                memory_usage        # Feature 5
+            ])
+        return np.array(features)
+    ```
+
+--------------------------------------------------------------------------------
+4.5 CLASSIFICATION DES TYPES D'ANOMALIES
+--------------------------------------------------------------------------------
+
+Une fois une anomalie détectée, le système la classifie en 4 catégories:
+
+1. DURATION_ANOMALY
+   - La durée d'exécution dévie de plus de 2 écarts-types
+   - Exemple: Un build prend 5 minutes au lieu de 30 secondes habituelles
+
+2. DELAY_ANOMALY  
+   - Le délai entre exécutions est anormalement long ou court
+   - Exemple: Pas de build pendant 2 jours alors qu'il y en a normalement 10/jour
+
+3. BEHAVIOR_CHANGE
+   - Changement significatif (>50%) dans le comportement
+   - Exemple: La durée augmente soudainement de 60%
+
+4. GENERAL_ANOMALY
+   - Anomalie détectée mais ne correspondant pas aux catégories ci-dessus
+
+IMPLÉMENTATION:
+    ```python
+    def _classify_anomaly_type(self, features, all_features, is_anomaly):
+        if abs(duration - mean_duration) > 2 * std_duration:
+            return 'duration_anomaly'
+        elif abs(time_gap - mean_gap) > 2 * std_gap:
+            return 'delay_anomaly'
+        elif abs(duration_diff) > mean_duration * 0.5:
+            return 'behavior_change'
+        else:
+            return 'general_anomaly'
+    ```
+
+--------------------------------------------------------------------------------
+4.6 APPRENTISSAGE HISTORIQUE
+--------------------------------------------------------------------------------
+
+Le système peut apprendre des données historiques stockées dans TimescaleDB:
+
+1. Récupération des 100 dernières exécutions pour un job donné
+2. Combinaison avec les données actuelles pour l'entraînement
+3. Stockage des nouvelles exécutions pour l'apprentissage futur
+
+MODÈLES DE DONNÉES (stockage):
+
+    BehaviorHistory (Table PostgreSQL/TimescaleDB):
+        - job_id: Identifiant du job
+        - timestamp: Date/heure de l'exécution
+        - duration_ms: Durée en ms
+        - status: success/failure
+        - resource_usage: {cpu, memory}
+    
+    AnomalyReport (Table PostgreSQL):
+        - job_id: Identifiant du job
+        - anomalies: Liste des anomalies détectées (JSON)
+        - summary: Résumé de l'analyse (JSON)
+        - model_used: isolation_forest ou autoencoder
+
+--------------------------------------------------------------------------------
+4.7 FORMAT DE RÉPONSE API
+--------------------------------------------------------------------------------
+
+REQUÊTE:
+    POST /anomaly
+    {
+        "job_id": "build-workflow",
+        "executions": [
+            {
+                "timestamp": "2024-01-15T10:00:00Z",
+                "duration_ms": 45000,
+                "status": "success",
+                "resource_usage": {"cpu": 75.5, "memory": 60.2}
+            }
+        ],
+        "use_autoencoder": false,
+        "learn_from_history": true
+    }
+
+RÉPONSE:
+    {
+        "job_id": "build-workflow",
+        "model_used": "isolation_forest",
+        "total_executions": 10,
+        "anomalies_found": 2,
+        "results": [
+            {
+                "execution_index": 0,
+                "timestamp": "2024-01-15T10:00:00Z",
+                "is_anomaly": true,
+                "anomaly_score": 0.85,
+                "anomaly_type": "duration_anomaly",
+                "description": "Unusual duration detected: 120000ms"
+            }
+        ],
+        "summary": {
+            "total_analyzed": 10,
+            "anomalies_detected": 2,
+            "anomaly_rate": 0.2,
+            "feature_stats": {
+                "mean_duration": 45000.0,
+                "std_duration": 5000.0,
+                "max_duration": 120000.0
+            }
+        }
+    }
+
+================================================================================
+5. COMMENT DÉMARRER LE PROJET
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 PRÉREQUIS
+--------------------------------------------------------------------------------
+
+- Docker et Docker Compose installés
+- Node.js 18+ (pour le développement local)
+- Python 3.11+ (pour le développement local)
+- 8 GB RAM minimum (TensorFlow nécessite de la mémoire)
+
+--------------------------------------------------------------------------------
+5.2 DÉMARRAGE AVEC DOCKER COMPOSE
+--------------------------------------------------------------------------------
+
+# Cloner le repository
+git clone <repo-url>
+cd projet-devsecops
+
+# Démarrer tous les services
+docker-compose up -d
+
+# Vérifier que tous les services sont démarrés
+docker-compose ps
+
+# Voir les logs
+docker-compose logs -f
+
+# Arrêter tous les services
+docker-compose down
+
+--------------------------------------------------------------------------------
+5.3 SERVICES ET PORTS
+--------------------------------------------------------------------------------
+
+Après démarrage, les services sont accessibles sur:
+
+| Service           | URL                    | Description              |
+|-------------------|------------------------|--------------------------|
+| MongoDB           | localhost:27017        | Base de données logs     |
+| PostgreSQL        | localhost:5432         | Base vulnérabilités      |
+| TimescaleDB       | localhost:5433         | Base données temporelles |
+| Log-Parser        | localhost:8000         | API parsing              |
+| Vuln-Detector     | localhost:8001         | API détection vulns      |
+| Fix-Suggester     | localhost:8002         | API suggestions          |
+| Anomaly-Detector  | localhost:8003         | API anomalies (ML)       |
+| Report-Generator  | localhost:8004         | API rapports             |
+| Dashboard         | localhost:3000         | Interface web            |
+
+--------------------------------------------------------------------------------
+5.4 DÉVELOPPEMENT LOCAL
+--------------------------------------------------------------------------------
+
+Pour développer un service localement:
+
+# Log-Collector (Node.js)
+cd services/log-collector
+npm install
+npm run dev
+
+# Log-Parser (Python)
+cd services/log-parser
+pip install -r requirements.txt
+uvicorn src.main:app --reload --port 8000
+
+# Anomaly-Detector (Python + ML)
+cd services/anomaly-detector
+pip install -r requirements.txt
+uvicorn src.main:app --reload --port 8003
+
+# Dashboard (React)
+cd services/dashboard
+npm install
+npm start
+
+================================================================================
+6. API ET ENDPOINTS - RÉSUMÉ
+================================================================================
+
+LOG-PARSER (Port 8000):
+    GET  /                  → Santé du service
+    POST /logs/parse        → Parser un log brut
+    GET  /logs              → Récupérer les logs parsés
+
+VULN-DETECTOR (Port 8001):
+    GET  /health            → Santé du service
+    POST /analyze           → Analyser un workflow YAML
+    GET  /vulns             → Lister les vulnérabilités
+
+FIX-SUGGESTER (Port 8002):
+    GET  /health            → Santé du service
+    POST /suggest           → Générer une suggestion de fix
+    GET  /suggestions       → Lister les suggestions
+
+ANOMALY-DETECTOR (Port 8003):
+    POST /anomaly           → Détecter des anomalies (ML)
+    GET  /history/{job_id}  → Historique d'un job
+    GET  /reports/{job_id}  → Rapports d'anomalies
+
+REPORT-GENERATOR (Port 8004):
+    GET  /report/pdf        → Générer rapport PDF
+    GET  /report/html       → Générer rapport HTML
+    GET  /report/sarif      → Générer rapport SARIF
+
+================================================================================
+                               FIN DU RAPPORT
+================================================================================
